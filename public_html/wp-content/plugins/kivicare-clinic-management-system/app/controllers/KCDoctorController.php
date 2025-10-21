@@ -283,7 +283,12 @@ class KCDoctorController extends KCBase
             'gender' => 'required',
             'country_code' => 'required',
             'country_calling_code' => 'required',
+            'username' => 'required',
         ];
+
+        if (empty($request_data['ID'])) {
+            $rules['user_pass'] = 'required';
+        }
 
         $errors = kcValidateRequest($rules, $request_data);
 
@@ -299,6 +304,46 @@ class KCDoctorController extends KCBase
         if(empty($email_condition['status'])){
 	        wp_send_json($email_condition);
         }
+
+        $request_data['username'] = isset($request_data['username']) ? sanitize_user($request_data['username'], true) : '';
+        if (empty($request_data['username'])) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('Username is required.', 'kc-lang')
+            ]);
+        }
+
+        $password = isset($request_data['user_pass']) ? sanitize_text_field($request_data['user_pass']) : '';
+        if (empty($request_data['ID']) && empty($password)) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('Password is required.', 'kc-lang')
+            ]);
+        }
+
+        if (empty($password)) {
+            $password = $request_data['username'];
+        }
+
+        if (!isset($request_data['ID'])) {
+            if (username_exists($request_data['username'])) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                ]);
+            }
+        } else {
+            $existing_user = get_user_by('login', $request_data['username']);
+            if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                ]);
+            }
+        }
+
+        $request_data['user_pass'] = $password;
+
 
         // Remove parentheses
         $request_data['mobile_number'] = str_replace(['(', ')'], '', $request_data['mobile_number']);
@@ -333,10 +378,14 @@ class KCDoctorController extends KCBase
 
 //        $service_doctor_mapping = new KCServiceDoctorMapping();
         if (!isset($request_data['ID'])) {
-
             // create new user
-            $password = kcGenerateString(12);
-            $user = wp_create_user(kcGenerateUsername($request_data['first_name']), $password, sanitize_email( $request_data['user_email']) );
+            $user = wp_create_user($request_data['username'], $request_data['user_pass'], sanitize_email( $request_data['user_email']) );
+            if(is_wp_error($user)){
+                    wp_send_json([
+                    'status' => false,
+                    'message' => $user->get_error_message()
+                ]);
+            }
             $u = new WP_User($user);
             $u->display_name = $request_data['first_name'] . ' ' . $request_data['last_name'];
             wp_insert_user($u);
@@ -345,6 +394,14 @@ class KCDoctorController extends KCBase
 
             $user_id = $u->ID;
 
+            $this->db->update(
+                $this->db->users,
+                [
+                    'user_login'    => $request_data['username'],
+                    'user_nicename' => sanitize_title($request_data['username']),
+                ],
+                ['ID' => $user_id]
+            );
             //clinic id based on role
             if ($current_user_role == $this->getReceptionistRole()) {
                 $request_data['clinic_id'] = kcGetClinicIdOfReceptionist();
@@ -394,15 +451,30 @@ class KCDoctorController extends KCBase
 		        wp_send_json(kcUnauthorizeAccessResponse(403));
 	        }
             //update doctor user
-            wp_update_user(
+            $update_user = wp_update_user(
                 array(
                     'ID' => (int)$request_data['ID'],
                     'user_email' => sanitize_email( $request_data['user_email'] ),
                     'display_name' => $request_data['first_name'] . ' ' . $request_data['last_name']
                 )
             );
+            if(is_wp_error($update_user)){
+                    wp_send_json([
+                    'status' => false,
+                    'message' => $update_user->get_error_message()
+                ]);
+            }
             $request_data['ID'] = (int)$request_data['ID'];
             $user_id = $request_data['ID'];
+            
+            $this->db->update(
+                $this->db->users,
+                [
+                    'user_login'    => $request_data['username'],
+                    'user_nicename' => sanitize_title($request_data['username']),
+                ],
+                ['ID' => $user_id]
+            );
             if(in_array($current_user_role,['administrator',$this->getDoctorRole()])){
 	            (new KCDoctorClinicMapping())->delete(['doctor_id' => $request_data['ID']]);
 	            if (isKiviCareProActive()) {
@@ -494,28 +566,24 @@ class KCDoctorController extends KCBase
 
             //update/save user status
             $wpdb->update($wpdb->base_prefix . 'users', ['user_status' => $request_data['user_status']], ['ID' => (int)$user_id]);
+     
+            update_user_meta($user_id, 'cedula_ci', $request_data['username']);
+        }
+        
+        if(!empty($request_data['ID'])){
+            do_action( 'kc_doctor_update', $user_id );
+        }else{
+            do_action( 'kc_doctor_save', $user_id );
         }
 
-
-        if (!empty($user->errors)) {
-	        wp_send_json([
-                'status' => false,
-                'message' => $user->get_error_message() ? $user->get_error_message() : esc_html__('Failed to save Doctor data.', 'kc-lang')
-            ]);
-        } else {
-            if(!empty($request_data['ID'])){
-                do_action( 'kc_doctor_update', $user_id );
-            }else{
-                do_action( 'kc_doctor_save', $user_id );
-            }
-	        wp_send_json(
-                [
-                    'status' => true,
-                    'message' => $message,
-                    'choose_language_updated' => apply_filters('kcpro_update_user_choose_language_updated',false,$request_data)
-                ]
+        $user = get_user_by('ID', $user_id);
+        wp_send_json(
+            [
+                'status' => true,
+                'message' => $message,
+                'choose_language_updated' => apply_filters('kcpro_update_user_choose_language_updated',false,$request_data)
+            ]
         );
-        }
     }
 
     public function edit()
