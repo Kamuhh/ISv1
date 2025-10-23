@@ -48,6 +48,17 @@ class KCPatientController extends KCBase {
 		}
         global $wpdb;
         $request_data = $this->request->getInputs();
+        
+        $cedula_source = '';
+        if (isset($request_data['u_id'])) {
+            $cedula_source = $request_data['u_id'];
+        } elseif (isset($request_data['username'])) {
+            $cedula_source = $request_data['username'];
+        }
+
+        $sanitized_cedula = preg_replace('/\D+/', '', (string)$cedula_source);
+        $request_data['u_id'] = $sanitized_cedula;
+        $request_data['username'] = $sanitized_cedula;
         $patients = [];
         $patient_clinic_mapping_table = $this->db->prefix . 'kc_patient_clinic_mappings';
 
@@ -297,28 +308,61 @@ class KCPatientController extends KCBase {
 		}
 
 		$rules = [
-			'first_name'    => 'required',
-			'last_name'     => 'required',
-			'user_email'    => 'required|email',
-			'mobile_number' => 'required',
-			'gender'        => 'required',
-            'country_code'  => 'required',
-            'country_calling_code' => 'required',
-		];
+                'first_name'    => 'required',
+                'last_name'     => 'required',
+                'user_email'    => 'required|email',
+                'mobile_number' => 'required',
+                'gender'        => 'required',
+        'country_code'  => 'required',
+        'country_calling_code' => 'required',
+        'username' => 'required',
+                ];
 
 		$errors = kcValidateRequest( $rules, $request_data );
 
 		if ( count( $errors ) ) {
-			wp_send_json( [
-				'status'  => false,
-				'message' => $errors[0]
-			] );
-		}
+                wp_send_json( [
+                        'status'  => false,
+                                'message' => $errors[0]
+                ] );
+        }
+
+        $request_data['username'] = isset($request_data['username']) ? sanitize_user($request_data['username'], true) : '';
+        if (empty($request_data['username'])) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('La cédula es requerida.', 'kc-lang')
+            ]);
+        }
+
+        $password = isset($request_data['user_pass']) ? sanitize_text_field($request_data['user_pass']) : '';
+        if (empty($password)) {
+            $password = $request_data['username'];
+        }
+
+        if (empty($request_data['ID'])) {
+            if (username_exists($request_data['username'])) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                ]);
+            }
+        } else {
+            $existing_user = get_user_by('login', $request_data['username']);
+            if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                ]);
+            }
+        }
+
+        $request_data['user_pass'] = $password;
 
         //check patient unique id not use by other patient
         if( kcPatientUniqueIdEnable('status') && $this->getLoginUserRole() !== $this->getPatientRole()){
             if(empty($request_data['u_id']) && $request_data['u_id'] == null ){
-	            wp_send_json( [
+                    wp_send_json( [
                     'status'  => false,
                     'message' => esc_html__('Patient Unique ID is required', 'kc-lang')
                 ] );
@@ -393,15 +437,20 @@ class KCPatientController extends KCBase {
             //default clinic id if pro not active
             $clinic_id = kcGetDefaultClinicId();
         }
-		if ( ! isset( $request_data['ID'] ) ) {
+                if ( ! isset( $request_data['ID'] ) ) {
 
             // create new user
-            $password = kcGenerateString( 12 );
-			$user            = wp_create_user( kcGenerateUsername( $request_data['first_name'] ), $password, sanitize_email( $request_data['user_email'] ) );
-			$u               = new WP_User( $user );
-			$u->display_name = $request_data['first_name'] . ' ' . $request_data['last_name'];
-			wp_insert_user( $u );
-			// add patient role to create user
+            $user = wp_create_user( $request_data['username'], $request_data['user_pass'], sanitize_email( $request_data['user_email'] ) );
+            if ( is_wp_error( $user ) ) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => $user->get_error_message(),
+                ]);
+            }
+                        $u               = new WP_User( $user );
+                        $u->display_name = $request_data['first_name'] . ' ' . $request_data['last_name'];
+                        wp_insert_user( $u );
+                        // add patient role to create user
             $u->set_role( $this->getPatientRole() );
 
             $this->savePatientClinic($user, $clinic_id);
@@ -435,8 +484,17 @@ class KCPatientController extends KCBase {
                 ]);
             }
 			$message = esc_html__('Patient has been saved successfully', 'kc-lang');
-			$user_id = $user ;
-		} else {
+			$this->db->update(
+                $this->db->users,
+                [
+                    'user_login'    => $request_data['username'],
+                    'user_nicename' => sanitize_title($request_data['username']),
+                ],
+                ['ID' => $user]
+            );
+
+            $user_id = $user ;
+                } else {
 
             $request_data['ID'] = (int)$request_data['ID'];
 
@@ -450,6 +508,15 @@ class KCPatientController extends KCBase {
 					'display_name' => $request_data['first_name'] . ' ' . $request_data['last_name']
 				)
 			);
+
+        $this->db->update(
+			$this->db->users,
+			[
+				'user_login'    => $request_data['username'],
+				'user_nicename' => sanitize_title($request_data['username']),
+			],
+			['ID' => $request_data['ID']]
+		);
 
 // 			$new_temp = [
 // 				'patient_id' => $request_data['ID'],
