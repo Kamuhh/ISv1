@@ -210,7 +210,7 @@ class KCReceptionistController extends KCBase {
             wp_send_json(kcUnauthorizeAccessResponse(403));
 		}
 
-		$rules = [
+		 $rules = [
                         'first_name'    => 'required',
                         'user_email'    => 'required|email',
                         'mobile_number' => 'required',
@@ -221,7 +221,13 @@ class KCReceptionistController extends KCBase {
                         'username' => 'required',
                 ];
 
-		$errors = kcValidateRequest( $rules, $request_data );
+        $errors = kcValidateRequest(
+            $rules,
+            $request_data,
+            [
+                'username' => esc_html__( 'El campo cédula es obligatorio', 'kc-lang' ),
+            ]
+        );
 
 		if ( count( $errors ) ) {
 			wp_send_json( [
@@ -242,7 +248,7 @@ class KCReceptionistController extends KCBase {
         if (empty($request_data['username'])) {
                 wp_send_json([
                 'status' => false,
-                'message' => esc_html__('Username is required.', 'kc-lang')
+                'message' => esc_html__('El campo cédula es obligatorio', 'kc-lang')
             ]);
         }
 
@@ -295,10 +301,10 @@ class KCReceptionistController extends KCBase {
 
 		if (empty($request_data['ID'])) {
 
-			if (username_exists($request_data['username'])) {
+                        if (username_exists($request_data['username'])) {
                                 wp_send_json([
                                 'status' => false,
-                                'message' => esc_html__('Username already exists.', 'kc-lang')
+                                'message' => esc_html__('La cédula ya está registrada', 'kc-lang')
                         ]);
                         }
 
@@ -353,7 +359,7 @@ class KCReceptionistController extends KCBase {
             if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
                                 wp_send_json([
                                 'status' => false,
-                                'message' => esc_html__('Username already exists.', 'kc-lang')
+                                'message' => esc_html__('La cédula ya está registrada', 'kc-lang')
                         ]);
             }
                         wp_update_user(
