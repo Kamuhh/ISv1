@@ -152,7 +152,7 @@ class KCHomeController extends KCBase
 
             $user->default_clinic_id = kcGetDefaultClinicId();
             $user->unquie_id_status = (bool)kcPatientUniqueIdEnable('status');
-            $user->unquie_id_value = generatePatientUniqueIdRegister();
+            $user->unquie_id_value = '';
 
             if ($proPluginActive) {
                 $enableEncounter = !empty($config_options[KIVI_CARE_PREFIX . 'enocunter_modules']) ? json_decode($config_options[KIVI_CARE_PREFIX . 'enocunter_modules']) : [];
