@@ -77,8 +77,8 @@ class KCPatientUniqueIdController extends KCBase
         }
     }
     public function getPatientUid() {
-	    wp_send_json( [
-            'data'=> generatePatientUniqueIdRegister(),
+	    wp_send_json([
+            'data' => '',
             'status' => true,
         ] );
     }
