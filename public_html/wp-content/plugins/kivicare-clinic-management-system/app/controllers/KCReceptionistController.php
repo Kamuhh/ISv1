@@ -210,24 +210,17 @@ class KCReceptionistController extends KCBase {
             wp_send_json(kcUnauthorizeAccessResponse(403));
 		}
 
-		 $rules = [
-                        'first_name'    => 'required',
-                        'user_email'    => 'required|email',
-                        'mobile_number' => 'required',
-                        //'dob'           => 'required',
-                        'gender'        => 'required',
-                        'country_calling_code' => 'required',
-                        'country_code' => 'required',
-                        'username' => 'required',
-                ];
+		$rules = [
+			'first_name'    => 'required',
+			'user_email'    => 'required|email',
+			'mobile_number' => 'required',
+			//'dob'           => 'required',
+			'gender'        => 'required',
+			'country_calling_code' => 'required',
+			'country_code' => 'required',
+		];
 
-        $errors = kcValidateRequest(
-            $rules,
-            $request_data,
-            [
-                'username' => esc_html__( 'El campo cédula es obligatorio', 'kc-lang' ),
-            ]
-        );
+		$errors = kcValidateRequest( $rules, $request_data );
 
 		if ( count( $errors ) ) {
 			wp_send_json( [
@@ -242,23 +235,9 @@ class KCReceptionistController extends KCBase {
 	        wp_send_json($email_condition);
         }
 
-        $request_data['username'] = isset($request_data['username']) ? sanitize_user($request_data['username'], true) : '';
-        $request_data['username'] = preg_replace('/\D+/', '', (string)$request_data['username']);
+        $username = kcGenerateUsername( $request_data['first_name'] );
 
-        if (empty($request_data['username'])) {
-                wp_send_json([
-                'status' => false,
-                'message' => esc_html__('El campo cédula es obligatorio', 'kc-lang')
-            ]);
-        }
-
-        $password = isset($request_data['user_pass']) ? sanitize_text_field($request_data['user_pass']) : '';
-
-        if (empty($password)) {
-            $password = $request_data['username'];
-        }
-
-        $request_data['user_pass'] = $password;
+        $password = kcGenerateString( 12 );
 
         $current_login_user_role = $this->getLoginUserRole();
 
@@ -299,18 +278,11 @@ class KCReceptionistController extends KCBase {
         }
 
 
-		if (empty($request_data['ID'])) {
+		if ( empty($request_data['ID']) ) {
 
-                        if (username_exists($request_data['username'])) {
-                                wp_send_json([
-                                'status' => false,
-                                'message' => esc_html__('La cédula ya está registrada', 'kc-lang')
-                        ]);
-                        }
+			$user = wp_create_user( $username, $password, sanitize_email( $request_data['user_email'] ) );
 
-                        $user = wp_create_user( $request_data['username'], $password, sanitize_email( $request_data['user_email'] ) );
-
-                        $u               = new WP_User( $user );
+			$u               = new WP_User( $user );
 			$u->display_name = $request_data['first_name'] . ' ' . $request_data['last_name'];
 			wp_insert_user( $u );
 
@@ -319,10 +291,9 @@ class KCReceptionistController extends KCBase {
 			$user_id = $u->ID;
 			update_user_meta($user, 'first_name', $request_data['first_name'] );
 			update_user_meta($user, 'last_name', $request_data['last_name'] );
-                        update_user_meta( $user, 'basic_data', json_encode( $temp, JSON_UNESCAPED_UNICODE ) );
-                        update_user_meta($user, 'country_calling_code', $request_data['country_calling_code']);
-                        update_user_meta($user, 'country_code', $request_data['country_code']);
-            update_user_meta($user, 'cedula_ci', $request_data['username']);
+			update_user_meta( $user, 'basic_data', json_encode( $temp, JSON_UNESCAPED_UNICODE ) );
+			update_user_meta($user, 'country_calling_code', $request_data['country_calling_code']);
+			update_user_meta($user, 'country_code', $request_data['country_code']);
 
 			// Insert Doctor Clinic mapping...
 			$receptionist_mapping = new KCReceptionistClinicMapping;
@@ -347,45 +318,28 @@ class KCReceptionistController extends KCBase {
 
 			$message = esc_html__('Receptionist saved successfully', 'kc-lang');
 
-        } else {
+		} else {
 
-                        $receptionist_mapping = new KCReceptionistClinicMapping;
+			$receptionist_mapping = new KCReceptionistClinicMapping;
 
             $request_data['ID'] = (int)$request_data['ID'];
-			 if( ! (new KCUser())->receptionistPermissionUserWise($request_data['ID'])){
-                                wp_send_json(kcUnauthorizeAccessResponse(403));
-                        }
-            $existing_user = get_user_by('login', $request_data['username']);
-            if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
-                                wp_send_json([
-                                'status' => false,
-                                'message' => esc_html__('La cédula ya está registrada', 'kc-lang')
-                        ]);
-            }
-                        wp_update_user(
-                                array(
-                                        'ID'           => $request_data['ID'],
-                                        'user_email'   => sanitize_email( $request_data['user_email']),
-                                        'display_name' => $request_data['first_name'] . ' ' . $request_data['last_name']
-                                )
-                        );
+			if( ! (new KCUser())->receptionistPermissionUserWise($request_data['ID'])){
+				wp_send_json(kcUnauthorizeAccessResponse(403));
+			}
+			wp_update_user(
+				array(
+					'ID'           => $request_data['ID'],
+					'user_email'   => sanitize_email( $request_data['user_email']),
+					'display_name' => $request_data['first_name'] . ' ' . $request_data['last_name']
+				)
+			);
 
-                        $user_id = $request_data['ID'];
-                        update_user_meta($user_id, 'first_name', $request_data['first_name']);
-                        update_user_meta($user_id, 'last_name' , $request_data['last_name']);
-                        update_user_meta( $user_id, 'basic_data', json_encode( $temp, JSON_UNESCAPED_UNICODE ));
-                        update_user_meta($user_id, 'country_calling_code', $request_data['country_calling_code']);
-                        update_user_meta($user_id, 'country_code', $request_data['country_code']);
-            update_user_meta($user_id, 'cedula_ci', $request_data['username']);
-
-            $this->db->update(
-                $this->db->users,
-                [
-                    'user_login'    => $request_data['username'],
-                    'user_nicename' => sanitize_title($request_data['username']),
-                ],
-                ['ID' => $user_id]
-            );
+			$user_id = $request_data['ID'];
+			update_user_meta($user_id, 'first_name', $request_data['first_name']);
+			update_user_meta($user_id, 'last_name' , $request_data['last_name']);
+			update_user_meta( $user_id, 'basic_data', json_encode( $temp, JSON_UNESCAPED_UNICODE ));
+			update_user_meta($user_id, 'country_calling_code', $request_data['country_calling_code']);
+			update_user_meta($user_id, 'country_code', $request_data['country_code']);
 
             (new KCReceptionistClinicMapping())->delete(['receptionist_id' => $user_id]);
             $receptionist_mapping->insert([

@@ -209,7 +209,6 @@ class KCClinicController extends KCBase {
             'first_name' => 'required',
             'last_name'   => 'required',
             'user_email' => 'required',
-            'username' => 'required',
             'mobile_number' => 'required',
             'gender' => 'required',
             'country_calling_code' => 'required',
@@ -218,31 +217,15 @@ class KCClinicController extends KCBase {
             'country_code_admin' => 'required',
         ];
 
-        $errors = kcValidateRequest(
-            $rules,
-            $requestData,
-            [
-                'username' => esc_html__( 'El campo RIF es obligatorio', 'kc-lang' ),
-            ]
-        );
+        $errors = kcValidateRequest($rules, $requestData);
 
         if (count($errors)) {
 
-                wp_send_json([
+	        wp_send_json([
                 'status' => false,
                 'message' => $errors[0]
             ]);
 
-        }
-
-        $requestData['username'] = isset($requestData['username']) ? sanitize_user($requestData['username'], true) : '';
-        $requestData['username'] = preg_replace('/[^a-zA-Z0-9]/', '', (string)$requestData['username']);
-
-        if (empty($requestData['username'])) {
-                wp_send_json([
-                'status' => false,
-                'message' => esc_html__('El campo RIF es obligatorio', 'kc-lang')
-            ]);
         }
 
         $clinc_detail= kcClinicDetail($requestData['id']);
@@ -302,7 +285,6 @@ class KCClinicController extends KCBase {
             'first_name'=>$requestData['first_name'],
             'last_name'=>$requestData['last_name'],
             'user_email'=>$requestData['user_email'],
-            'username' => $requestData['username'],
             'mobile_number' => str_replace(' ', '', $requestData['mobile_number']) ,
             'gender'=>$requestData['gender'],
             'dob'=>$requestData['dob'],
@@ -356,17 +338,9 @@ class KCClinicController extends KCBase {
                 }
                 $clinic->update($clinicData, array( 'id' => (int)$clinic_id ));
                 $requestData['clinic_admin_id'] = (int)$requestData['clinic_admin_id'];
-                $existing_user = get_user_by('login', $requestData['username']);
-                if ($existing_user && (int)$existing_user->ID !== (int)$requestData['clinic_admin_id']) {
-                        wp_send_json([
-                        'status' => false,
-                        'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
-                ]);
-                }
                 wp_update_user(
                     array(
                         'ID'         => $requestData['clinic_admin_id'],
-                        'user_login' => $requestData['username'],
                         'user_email' => $requestData['user_email'],
                         'display_name' =>  $requestData['first_name'] . ' ' . $requestData['last_name']
                     )
@@ -377,16 +351,6 @@ class KCClinicController extends KCBase {
                 update_user_meta( $requestData['clinic_admin_id'], 'basic_data', json_encode( $clinicAdminData ) );
                 update_user_meta($requestData['clinic_admin_id'], 'country_calling_code', $clinicAdminData['country_calling_code_admin']);
                 update_user_meta($requestData['clinic_admin_id'], 'country_code', $clinicAdminData['country_code_admin']);
-                update_user_meta($requestData['clinic_admin_id'], 'cedula_ci', $requestData['username']);
-
-                $this->db->update(
-                    $this->db->users,
-                    [
-                        'user_login'    => $requestData['username'],
-                        'user_nicename' => sanitize_title($requestData['username']),
-                    ],
-                    ['ID' => $requestData['clinic_admin_id']]
-                );
 
 
                 if(!empty($data['clinicAdminData']['profile_image'])) {
