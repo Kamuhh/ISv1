@@ -218,7 +218,13 @@ class KCClinicController extends KCBase {
             'country_code_admin' => 'required',
         ];
 
-        $errors = kcValidateRequest($rules, $requestData);
+        $errors = kcValidateRequest(
+            $rules,
+            $requestData,
+            [
+                'username' => esc_html__( 'El campo RIF es obligatorio', 'kc-lang' ),
+            ]
+        );
 
         if (count($errors)) {
 
@@ -235,7 +241,7 @@ class KCClinicController extends KCBase {
         if (empty($requestData['username'])) {
                 wp_send_json([
                 'status' => false,
-                'message' => esc_html__('Username is required.', 'kc-lang')
+                'message' => esc_html__('El campo RIF es obligatorio', 'kc-lang')
             ]);
         }
 
@@ -354,7 +360,7 @@ class KCClinicController extends KCBase {
                 if ($existing_user && (int)$existing_user->ID !== (int)$requestData['clinic_admin_id']) {
                         wp_send_json([
                         'status' => false,
-                        'message' => esc_html__('Username already exists.', 'kc-lang')
+                        'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
                 ]);
                 }
                 wp_update_user(
