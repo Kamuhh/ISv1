@@ -113,8 +113,15 @@ class KCSetupController extends KCBase {
             'gender' => 'required',
             'country_calling_code' => 'required',
             'country_code' => 'required',
+            'username' => 'required',
         ];
-        $errors = kcValidateRequest( $rules, $request_data );
+        $errors = kcValidateRequest(
+            $rules,
+            $request_data,
+            [
+                'username' => esc_html__( 'El campo RIF es obligatorio', 'kc-lang' ),
+            ]
+        );
         if ( count( $errors ) ) {
 	        wp_send_json( [
                 'status'  => false,
@@ -122,7 +129,23 @@ class KCSetupController extends KCBase {
             ] );
         }
 
-        $request_data['user_pass'] = kcGenerateString(12);
+        $request_data['username'] = isset($request_data['username']) ? sanitize_user($request_data['username'], true) : '';
+        $request_data['username'] = preg_replace('/[^a-zA-Z0-9]/', '', (string)$request_data['username']);
+
+        if (empty($request_data['username'])) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('El campo RIF es obligatorio', 'kc-lang')
+            ]);
+        }
+
+        $password = isset($request_data['user_pass']) ? sanitize_text_field($request_data['user_pass']) : '';
+
+        if (empty($password)) {
+            $password = $request_data['username'];
+        }
+
+        $request_data['user_pass'] = $password;
 
         if(!empty($request_data['selected_demo_user']) && strpos($request_data['selected_demo_user'], ',') !== false){
             $request_data['selected_demo_user'] = explode(',',$request_data['selected_demo_user']);
@@ -140,7 +163,12 @@ class KCSetupController extends KCBase {
         ];
         if ( ! isset( $request_data['ID'] ) || $request_data['ID'] === null || $request_data['ID'] === '') {
 
-            $request_data['username'] = kcGenerateUsername( $request_data['first_name'] );
+            if (username_exists($request_data['username'])) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
+            ]);
+            }
 
             $user = wp_create_user($request_data['username'], $request_data['user_pass'], sanitize_email( $request_data['user_email']) );
 
@@ -176,10 +204,18 @@ class KCSetupController extends KCBase {
             update_user_meta( $user, 'basic_data', json_encode( $temp ) );
             update_user_meta($user, 'country_code', $request_data['country_code']);
             update_user_meta($user, 'country_calling_code', $request_data['country_calling_code']);
+            update_user_meta($user, 'cedula_ci', $request_data['username']);
 
         } else {
 
             $request_data['ID'] = (int)$request_data['ID'];
+            $existing_user = get_user_by('login', $request_data['username']);
+            if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
+            ]);
+            }
             wp_update_user(
                 array(
                     'ID'         => $request_data['ID'],
@@ -192,6 +228,16 @@ class KCSetupController extends KCBase {
             update_user_meta( $request_data['ID'], 'basic_data', json_encode( $temp ) );
             update_user_meta($request_data['ID'], 'country_code', $request_data['country_code']);
             update_user_meta($request_data['ID'], 'country_calling_code', $request_data['country_calling_code']);
+            update_user_meta($request_data['ID'], 'cedula_ci', $request_data['username']);
+
+            $this->db->update(
+                $this->db->users,
+                [
+                    'user_login'    => $request_data['username'],
+                    'user_nicename' => sanitize_title($request_data['username']),
+                ],
+                ['ID' => $request_data['ID']]
+            );
 
         }
 
