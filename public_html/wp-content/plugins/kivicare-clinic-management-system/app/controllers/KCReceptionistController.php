@@ -218,7 +218,6 @@ class KCReceptionistController extends KCBase {
                 'gender'        => 'required',
                 'country_calling_code' => 'required',
                 'country_code' => 'required',
-                'username' => 'required',
         ];
 
 		$errors = kcValidateRequest( $rules, $request_data );
@@ -253,7 +252,7 @@ class KCReceptionistController extends KCBase {
             if (username_exists($request_data['username'])) {
                     wp_send_json([
                     'status' => false,
-                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                    'message' => esc_html__('La cédula ya existe.', 'kc-lang')
                 ]);
             }
         } else {
@@ -261,7 +260,7 @@ class KCReceptionistController extends KCBase {
             if ($existing_user && (int)$existing_user->ID !== (int)$request_data['ID']) {
                     wp_send_json([
                     'status' => false,
-                    'message' => esc_html__('Username already exists.', 'kc-lang')
+                    'message' => esc_html__('La cédula ya existe.', 'kc-lang')
                 ]);
             }
         }
