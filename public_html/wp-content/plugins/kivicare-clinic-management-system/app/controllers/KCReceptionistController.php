@@ -340,7 +340,7 @@ class KCReceptionistController extends KCBase {
                         );
 
                         // Insert Doctor Clinic mapping...
-                        $receptionist_mapping = new KCReceptionistClinicMapping
+                        $receptionist_mapping = new KCReceptionistClinicMapping;
 
 			$new_temp = [
 				'receptionist_id' => $user_id,
