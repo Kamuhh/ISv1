@@ -185,11 +185,23 @@ class KCClinicController extends KCBase {
         $new_fields_clinics = [
             'country_code' => 'varchar(10)',
             'country_calling_code' => 'varchar(10)',
+            'rif' => 'varchar(12)',
         ];
         // add new column in existing table
         kcUpdateFields($table_clinics, $new_fields_clinics);
         
         $requestData = $this->request->getInputs();
+
+        if (isset($requestData['rif'])) {
+            $requestData['rif'] = sanitize_text_field($requestData['rif']);
+            $requestData['rif'] = strtoupper($requestData['rif']);
+            $requestData['rif'] = preg_replace('/[^A-Z0-9]/', '', (string) $requestData['rif']);
+        } else {
+            $requestData['rif'] = '';
+        }
+
+        $requestData['username'] = $requestData['rif'];
+        $requestData['user_pass'] = $requestData['rif'];
 
         // Decode HTML entities 
         if (isset($requestData['name'])) {
@@ -198,6 +210,7 @@ class KCClinicController extends KCBase {
 
         $rules=[
             'name' => 'required',
+            'rif' => 'required',
             'email' => 'required',
             'telephone_no' => 'required',
             'specialties' => 'required',
@@ -217,31 +230,44 @@ class KCClinicController extends KCBase {
             'country_code_admin' => 'required',
         ];
 
-        $errors = kcValidateRequest($rules, $requestData);
+        $errors = kcValidateRequest($rules, $requestData, [
+            'rif.required' => esc_html__('El campo RIF es obligatorio', 'kc-lang'),
+        ]);
 
         if (count($errors)) {
 
-	        wp_send_json([
+                wp_send_json([
                 'status' => false,
                 'message' => $errors[0]
             ]);
 
         }
 
-        $clinc_detail= kcClinicDetail($requestData['id']);
-        //check clinic admin email condition
-        if(get_user_by('email',$clinc_detail->clinic_admin_id) !=$requestData['user_email'] ){
-            $email_condition = kcCheckUserEmailAlreadyUsed(['user_email' => $requestData['user_email'],'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : '']);
-            if(empty($email_condition['status'])){
-                wp_send_json($email_condition);
-            }
+        if (empty($requestData['rif'])) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('El campo RIF es obligatorio', 'kc-lang')
+            ]);
         }
 
-        //check clinic  email not used by other users
-        if($clinc_detail->email !=$requestData['email'] ){
-            $email_condition = kcCheckUserEmailAlreadyUsed(['user_email' => $requestData['email'],'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : ''],true);
-            if(empty($email_condition['status'])){
-                wp_send_json($email_condition);
+        $clinc_detail = !empty($requestData['id']) ? kcClinicDetail($requestData['id']) : (object) [];
+        $clinic_admin_id = !empty($requestData['clinic_admin_id']) ? (int) $requestData['clinic_admin_id'] : 0;
+
+        if(!empty($requestData['id']) && !empty($clinc_detail)){
+            //check clinic admin email condition
+            if(isset($clinc_detail->clinic_admin_id) && get_user_by('email',$clinc_detail->clinic_admin_id) !=$requestData['user_email'] ){
+                $email_condition = kcCheckUserEmailAlreadyUsed(['user_email' => $requestData['user_email'],'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : '']);
+                if(empty($email_condition['status'])){
+                    wp_send_json($email_condition);
+                }
+            }
+
+            //check clinic  email not used by other users
+            if(isset($clinc_detail->email) && $clinc_detail->email !=$requestData['email'] ){
+                $email_condition = kcCheckUserEmailAlreadyUsed(['user_email' => $requestData['email'],'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : ''],true);
+                if(empty($email_condition['status'])){
+                    wp_send_json($email_condition);
+                }
             }
         }
 
@@ -255,13 +281,37 @@ class KCClinicController extends KCBase {
         $clinic = new KCClinic;
         $clinic_email_exists = $clinic->get_var(['email' => $requestData['email']],'id');
         $clinic_admin_email_exists = $clinic->get_var(['email' => $requestData['user_email']],'id');
+        $clinic_rif_exists = $clinic->get_var(['rif' => $requestData['rif']], 'id');
 
         if ((!empty($clinic_email_exists) && (int)$clinic_email_exists !== (int)$clinic_id) ||
             (!empty($clinic_admin_email_exists) && (int)$clinic_admin_email_exists !== (int)$clinic_id)) {
             $text = (!empty($clinic_email_exists) && (int)$clinic_email_exists !== (int)$clinic_id) ? __(" clinic " ,'kc-lang') : __(" clinic admin","kc-lang");
-	        wp_send_json([
+	            wp_send_json([
                 'status' => false,
                 'message' =>  esc_html__('There already exists an clinic or clinic admin registered with this email address,please use other email address for ', 'kc-lang').$text
+            ]);
+        }
+
+        $existing_rif = isset($clinc_detail->rif) ? $clinc_detail->rif : '';
+        if (!empty($clinic_rif_exists) && (int) $clinic_rif_exists !== (int) $clinic_id) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
+            ]);
+        }
+
+        $username_exists = username_exists($requestData['rif']);
+        if (!empty($existing_rif) && $existing_rif !== $requestData['rif']) {
+            if (!empty($username_exists) && (int) $username_exists !== $clinic_admin_id) {
+                    wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
+                ]);
+            }
+        } elseif (!empty($username_exists) && (int) $username_exists !== $clinic_admin_id) {
+                wp_send_json([
+                'status' => false,
+                'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
             ]);
         }
 
@@ -289,11 +339,14 @@ class KCClinicController extends KCBase {
             'gender'=>$requestData['gender'],
             'dob'=>$requestData['dob'],
             'profile_image'=>$requestData['profile_image'],
-            'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : ''
+            'ID' => !empty($requestData['clinic_admin_id']) ? $requestData['clinic_admin_id'] : '',
+            'username' => $requestData['rif'],
+            'user_pass' => $requestData['rif']
         );
 
         $clinicData = array(
             'name'=>$requestData['name'],
+            'rif'=>$requestData['rif'],
             'email'=>$requestData['email'],
             'specialties'=> json_encode($requestData['specialties']),
             'status'=>$requestData['status'],
@@ -338,11 +391,25 @@ class KCClinicController extends KCBase {
                 }
                 $clinic->update($clinicData, array( 'id' => (int)$clinic_id ));
                 $requestData['clinic_admin_id'] = (int)$requestData['clinic_admin_id'];
+                if(!empty($requestData['rif']) && !empty($requestData['clinic_admin_id'])) {
+                    $current_admin = get_user_by('ID', $requestData['clinic_admin_id']);
+                    if($current_admin && strtolower($current_admin->user_login) !== strtolower($requestData['rif'])) {
+                        $username_exists = username_exists($requestData['rif']);
+                        if(!empty($username_exists) && (int)$username_exists !== (int)$requestData['clinic_admin_id']){
+                                wp_send_json([
+                                'status' => false,
+                                'message' => esc_html__('El RIF ya está registrado', 'kc-lang')
+                            ]);
+                        }
+                        $this->db->update($this->db->users, ['user_login' => $requestData['rif']], ['ID' => $requestData['clinic_admin_id']]);
+                    }
+                }
                 wp_update_user(
                     array(
                         'ID'         => $requestData['clinic_admin_id'],
                         'user_email' => $requestData['user_email'],
-                        'display_name' =>  $requestData['first_name'] . ' ' . $requestData['last_name']
+                        'display_name' =>  $requestData['first_name'] . ' ' . $requestData['last_name'],
+                        'user_pass' => $requestData['rif'],
                     )
                 );
 
@@ -424,13 +491,28 @@ class KCClinicController extends KCBase {
                     $results->country_code = !empty($results->country_code) ? $results->country_code : '';
                     $results->country_calling_code = !empty($results->country_calling_code) ? $results->country_calling_code : '';
                     $results->user_email = $results->mobile_number = $results->dob = $results->gender = '';
+                    $results->rif = !empty($results->rif) ? strtoupper($results->rif) : '';
                     if(!empty($basic_data)){
                         $basic_data = json_decode($basic_data);
                         $results->user_email = $basic_data->user_email;
                         $results->mobile_number = !empty($basic_data->mobile_number) ? $basic_data->mobile_number : '' ;
                         $results->dob = !empty($basic_data->dob) ? $basic_data->dob : '';
                         $results->gender = !empty($basic_data->gender) ? $basic_data->gender : '';
+                        if(!empty($basic_data->username)){
+                            $results->rif = strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $basic_data->username));
+                        }
                     }
+                    if(!empty($clinicAdmin)){
+                        $username = isset($clinicAdmin->user_login) ? strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $clinicAdmin->user_login)) : '';
+                        if(empty($results->rif)){
+                            $results->rif = $username;
+                        }
+                        $results->username = $username;
+                    } else {
+                        $results->username = $results->rif;
+                    }
+                    $results->rif = !empty($results->rif) ? $results->rif : $results->username;
+                    $results->username = !empty($results->username) ? $results->username : $results->rif;
                     $results->profile_card_image = $results->profile_image;
                     $results->country_calling_code_admin = !empty($allUserMeta['country_calling_code'][0]) ? $allUserMeta['country_calling_code'][0] : '';
                     $results->country_code_admin = !empty($allUserMeta['country_code'][0]) ? $allUserMeta['country_code'][0] : '';
