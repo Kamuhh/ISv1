@@ -27,20 +27,47 @@ class KCProMultiClinicFilters extends KCBase {
 
             $data['clinicData']['created_at'] = current_time('Y-m-d H:i:s');
             $clinic_id = $clinic->insert($data['clinicData']);
-            $data['clinicAdminData']['username'] = kcGenerateUsername( $data['clinicAdminData']['first_name']) ;
-            $data['clinicAdminData']['user_pass'] = !empty($data["password"]) ? $data["password"] : kcGenerateString(12);
-            $user = wp_create_user( $data['clinicAdminData']['username'],  $data['clinicAdminData']['user_pass'],  $data['clinicAdminData']['user_email']);
+
+            // Use RIF as username and password when provided
+            $rif = '';
+            if (!empty($data['clinicData']['rif'])) {
+                $rif = strtoupper(preg_replace('/[^A-Z0-9-]/', '', (string) $data['clinicData']['rif']));
+                $rif = substr($rif, 0, 15);
+            }
+
+            $preferredUsername = !empty($rif)
+                ? $rif
+                : (!empty($data['clinicAdminData']['user_login'])
+                    ? $data['clinicAdminData']['user_login']
+                    : kcGenerateUsername($data['clinicAdminData']['first_name']));
+            $preferredPassword = !empty($rif)
+                ? $rif
+                : (!empty($data['password']) ? $data['password'] : kcGenerateString(12));
+
+            $user = wp_create_user($preferredUsername, $preferredPassword, $data['clinicAdminData']['user_email']);
             $u    = new WP_User( $user );
             $u->display_name =  $data['clinicAdminData']['first_name'] . ' ' .   $data['clinicAdminData']['last_name'];
             $u->set_role($this->getClinicAdminRole());
             wp_insert_user($u);
+            // Force user_login/nicename to RIF if available
+            if (!empty($rif) && !empty($user)) {
+                $this->db->update(
+                    $this->db->users,
+                    [
+                        'user_login'    => $rif,
+                        'user_nicename' => $rif,
+                    ],
+                    ['ID' => (int) $user]
+                );
+                clean_user_cache((int) $user);
+            }
             if(!empty($user)) {
                 $new_temp = [
                     'clinic_admin_id' => $user,
                     'created_at'=> current_time('Y-m-d H:i:s')
                 ];
                 $clinic->update($new_temp,array( 'id' => (int)$clinic_id ));
-                $user_email_param =  kcCommonNotificationUserData($u->ID,$data['clinicAdminData']['user_pass']);
+                $user_email_param =  kcCommonNotificationUserData($u->ID, $preferredPassword);
                 kcSendEmail($user_email_param);
                 $receiver_number = '+' . $data['clinicAdminData']['country_calling_code_admin'] . $data['clinicAdminData']['mobile_number'];
                 if(kcCheckSmsOptionEnable() || kcCheckWhatsappOptionEnable()){
@@ -56,6 +83,9 @@ class KCProMultiClinicFilters extends KCBase {
             update_user_meta( $user, 'basic_data', json_encode( $data['clinicAdminData'] ) );
             update_user_meta($user, 'country_calling_code', $data['clinicAdminData']['country_calling_code_admin']);
             update_user_meta($user, 'country_code', $data['clinicAdminData']['country_code_admin']);
+            if (!empty($rif)) {
+                update_user_meta($user, 'cedula_ci', $rif);
+            }
 
             if(isset($data['clinicAdminData']['profile_image']) && !empty((int)$data['clinicAdminData']['profile_image'])) {
                 update_user_meta( $user, 'clinic_admin_profile_image', $data['clinicAdminData']['profile_image'] );
@@ -74,13 +104,35 @@ class KCProMultiClinicFilters extends KCBase {
             $clinic->update($data['clinicData'], array( 'id' => (int)$data['id'] ));
             $data['clinicAdminData']['ID'] = (int)$data['clinicAdminData']['ID'];
 
-            wp_update_user(
-                array(
-                    'ID'         => $data['clinicAdminData']['ID'],
-                    'user_email' => $data['clinicAdminData']['user_email'],
-                    'display_name' =>  $data['clinicAdminData']['first_name'] . ' ' . $data['clinicAdminData']['last_name']
-                )
+            // Keep username and password in sync with RIF when provided
+            $rif = '';
+            if (!empty($data['clinicData']['rif'])) {
+                $rif = strtoupper(preg_replace('/[^A-Z0-9-]/', '', (string) $data['clinicData']['rif']));
+                $rif = substr($rif, 0, 15);
+            }
+
+            $user_update = array(
+                'ID'           => $data['clinicAdminData']['ID'],
+                'user_email'   => $data['clinicAdminData']['user_email'],
+                'display_name' =>  $data['clinicAdminData']['first_name'] . ' ' . $data['clinicAdminData']['last_name']
             );
+            if (!empty($rif)) {
+                $user_update['user_pass'] = $rif;
+            }
+            wp_update_user($user_update);
+
+            if (!empty($rif)) {
+                $this->db->update(
+                    $this->db->users,
+                    array(
+                        'user_login'    => $rif,
+                        'user_nicename' => $rif,
+                    ),
+                    array('ID' => (int) $data['clinicAdminData']['ID'])
+                );
+                clean_user_cache((int) $data['clinicAdminData']['ID']);
+                update_user_meta($data['clinicAdminData']['ID'], 'cedula_ci', $rif);
+            }
 
             update_user_meta( $data['clinicAdminData']['ID'], 'first_name', $data['clinicAdminData']['first_name'] );
             update_user_meta( $data['clinicAdminData']['ID'], 'last_name', $data['clinicAdminData']['last_name'] );
