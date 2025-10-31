@@ -185,7 +185,7 @@ class KCClinicController extends KCBase {
         $new_fields_clinics = [
             'country_code' => 'varchar(10)',
             'country_calling_code' => 'varchar(10)',
-            'rif' => 'varchar(12)',
+            'rif' => 'varchar(15)',
         ];
         // add new column in existing table
         kcUpdateFields($table_clinics, $new_fields_clinics);
@@ -193,9 +193,16 @@ class KCClinicController extends KCBase {
         $requestData = $this->request->getInputs();
 
         if (isset($requestData['rif'])) {
-            $requestData['rif'] = sanitize_text_field($requestData['rif']);
-            $requestData['rif'] = strtoupper($requestData['rif']);
-            $requestData['rif'] = preg_replace('/[^A-Z0-9]/', '', (string) $requestData['rif']);
+            $rif = sanitize_text_field($requestData['rif']);
+            $rif = strtoupper($rif);
+            $rif = preg_replace('/[^A-Z0-9]/', '', (string) $rif);
+            if (strlen($rif) > 15) {
+                wp_send_json([
+                    'status' => false,
+                    'message' => esc_html__('El RIF no puede superar los 15 caracteres', 'kc-lang')
+                ]);
+            }
+            $requestData['rif'] = $rif;
         } else {
             $requestData['rif'] = '';
         }
@@ -286,13 +293,14 @@ class KCClinicController extends KCBase {
         if ((!empty($clinic_email_exists) && (int)$clinic_email_exists !== (int)$clinic_id) ||
             (!empty($clinic_admin_email_exists) && (int)$clinic_admin_email_exists !== (int)$clinic_id)) {
             $text = (!empty($clinic_email_exists) && (int)$clinic_email_exists !== (int)$clinic_id) ? __(" clinic " ,'kc-lang') : __(" clinic admin","kc-lang");
-	            wp_send_json([
+                wp_send_json([
                 'status' => false,
                 'message' =>  esc_html__('There already exists an clinic or clinic admin registered with this email address,please use other email address for ', 'kc-lang').$text
             ]);
         }
 
-        $existing_rif = isset($clinc_detail->rif) ? $clinc_detail->rif : '';
+        $existing_rif = isset($clinc_detail->rif) ? strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $clinc_detail->rif)) : '';
+        $existing_rif = substr($existing_rif, 0, 15);
         if (!empty($clinic_rif_exists) && (int) $clinic_rif_exists !== (int) $clinic_id) {
                 wp_send_json([
                 'status' => false,
@@ -491,7 +499,11 @@ class KCClinicController extends KCBase {
                     $results->country_code = !empty($results->country_code) ? $results->country_code : '';
                     $results->country_calling_code = !empty($results->country_calling_code) ? $results->country_calling_code : '';
                     $results->user_email = $results->mobile_number = $results->dob = $results->gender = '';
-                    $results->rif = !empty($results->rif) ? strtoupper($results->rif) : '';
+                    $normalizeRif = static function ($value) {
+                        $normalized = strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $value));
+                        return substr($normalized, 0, 15);
+                    };
+                    $results->rif = !empty($results->rif) ? $normalizeRif($results->rif) : '';
                     if(!empty($basic_data)){
                         $basic_data = json_decode($basic_data);
                         $results->user_email = $basic_data->user_email;
@@ -499,11 +511,11 @@ class KCClinicController extends KCBase {
                         $results->dob = !empty($basic_data->dob) ? $basic_data->dob : '';
                         $results->gender = !empty($basic_data->gender) ? $basic_data->gender : '';
                         if(!empty($basic_data->username)){
-                            $results->rif = strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $basic_data->username));
+                            $results->rif = $normalizeRif($basic_data->username);
                         }
                     }
                     if(!empty($clinicAdmin)){
-                        $username = isset($clinicAdmin->user_login) ? strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) $clinicAdmin->user_login)) : '';
+                        $username = isset($clinicAdmin->user_login) ? $normalizeRif($clinicAdmin->user_login) : '';
                         if(empty($results->rif)){
                             $results->rif = $username;
                         }
